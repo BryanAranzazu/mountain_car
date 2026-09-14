@@ -40,10 +40,16 @@ class QNetwork(nn.Module):
 
     def __init__(self, state_dim: int, action_dim: int, hidden: int = 128) -> None:
         super().__init__()
-        raise NotImplementedError("EXERCISE 2a: build the Q-network")
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, action_dim),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("EXERCISE 2a: implement forward()")
+        return self.net(x)
 
 
 # ── Replay buffer ────────────────────────────────────────────────────
@@ -96,6 +102,7 @@ class DQNAgent:
         buffer_capacity: int = 100_000,
         target_update_freq: int = 10,
         hidden: int = 128,
+        sticky_prob: float = 0.9,
     ) -> None:
         self.env_id = env_id
         self.lr = lr
@@ -108,6 +115,14 @@ class DQNAgent:
         self.target_update_freq = target_update_freq
         self.hidden = hidden
         self.training_episodes = 0
+
+        # EXERCISE 3: probability of repeating the previous exploratory action
+        # instead of drawing a fresh one. This is what turns independent,
+        # per-step coin flips into temporally-correlated "sustained runs" of
+        # pushing in one direction -- the behaviour MountainCar actually needs
+        # to ever reach the flag during random/epsilon exploration.
+        self.sticky_prob = sticky_prob
+        self._last_explore_action: int | None = None
 
         env = gym.make(env_id)
         self.state_dim = int(env.observation_space.shape[0])  # type: ignore[index]
@@ -147,7 +162,16 @@ class DQNAgent:
         to diagnose it from your own measurements first.
         """
         if not deterministic and random.random() < self.epsilon:
-            return random.randrange(self.action_dim)
+            # Sticky exploration: keep pushing in the same direction with
+            # probability `sticky_prob` instead of redrawing independently
+            # every step. Consecutive exploratory actions become correlated,
+            # which produces the sustained back-and-forth runs the car needs
+            # to build momentum -- something (1/3)^k independent draws will
+            # essentially never produce for a run of useful length k.
+            if self._last_explore_action is None or random.random() > self.sticky_prob:
+                self._last_explore_action = random.randrange(self.action_dim)
+            return self._last_explore_action
+        self._last_explore_action = None
         with torch.no_grad():
             t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             return int(self.q_net(t).argmax(dim=1).item())
@@ -197,7 +221,19 @@ class DQNAgent:
         #      Tip: zero_grad() -> backward() -> step(), in that order.
         #
         # Return the scalar loss value (.item()).
-        raise NotImplementedError("EXERCISE 2b: implement the DQN learning step")
+        current_q = self.q_net(states_t).gather(1, actions_t)
+
+        with torch.no_grad():
+            next_q = self.target_net(next_states_t).max(dim=1, keepdim=True).values
+            target_q = rewards_t + self.gamma * next_q * (1.0 - terminateds_t)
+
+        loss = self.loss_fn(current_q, target_q)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return loss.item()
 
     # ── training loop ─────────────────────────────────────────────────
 
@@ -209,6 +245,7 @@ class DQNAgent:
             obs, _ = env.reset()
             total_reward = 0.0
             done = False
+            self._last_explore_action = None  # reset sticky-exploration state
 
             while not done:
                 action = self.select_action(obs)
@@ -255,6 +292,7 @@ class DQNAgent:
         "buffer_capacity",
         "target_update_freq",
         "hidden",
+        "sticky_prob",
     )
 
     def save(self, path: Path) -> None:
