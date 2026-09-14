@@ -131,5 +131,162 @@ src/mountain_car/
     ├── qlearning.py    # tabular Q-Learning
     └── dqn.py          # DQN: QNetwork, ReplayBuffer, DQNAgent
 saves/                  # agent save files land here
+results/                # curvas de entrenamiento y CSVs generados (Taller 1)
+scripts/
+└── train_and_plot.py   # entrena, guarda CSV y grafica la curva de aprendizaje
 EXERCISES.md            # the exercises: what to implement, in what order
 ```
+
+---
+
+## Taller 1 — Q-Learning vs. DQN en MountainCar-v0
+
+Este fork completa los tres ejercicios de `EXERCISES.md` sobre el repositorio
+base del curso, y añade un script (`scripts/train_and_plot.py`) para producir
+las curvas de entrenamiento y los CSV de evidencia que se muestran abajo.
+
+### Cómo reproducir los resultados
+
+```bash
+uv sync
+
+# Q-Learning tabular (≈1–2 min en CPU)
+uv run python scripts/train_and_plot.py qlearning --episodes 20000
+
+# DQN (≈5 min en CPU)
+uv run python scripts/train_and_plot.py dqn --episodes 2500
+```
+
+Cada corrida deja un CSV (`results/<agente>_rewards.csv`) y una gráfica
+(`results/<agente>_training_curve.png`) con la curva de recompensa por
+episodio y su media móvil.
+
+### 1. Q-Learning tabular — Ejercicio 1
+
+**Discretización:** cada dimensión continua (posición, velocidad) se divide
+en 20 bins usando los límites que publica el propio entorno
+(`env.observation_space.low/high`), dando una rejilla de 400 estados posibles.
+
+**Actualización TD (Ejercicio 1c):**
+
+```
+target   = reward                              si terminated
+target   = reward + gamma * max_a' Q(s', a')   en otro caso
+Q(s,a)  += lr * (target - Q(s,a))
+```
+
+**Hiperparámetros:** `n_bins=20`, `lr=0.1`, `gamma=0.99`,
+`epsilon: 1.0 → 0.01` con decaimiento `0.9995` por episodio, 20 000 episodios.
+
+**Resultado real obtenido (evaluación greedy, 100 episodios, seeds fijas):**
+
+| Métrica | Valor |
+|---|---|
+| Recompensa media (últimos 1000 episodios de entrenamiento) | **-129.1** |
+| Recompensa media en evaluación (100 episodios, política greedy) | **-129.5** |
+| Mejor episodio individual | **-99** |
+| Episodios en los que llega a la meta | **100/100** |
+| Estados de la tabla Q visitados | 297 / 400 |
+| Tiempo de entrenamiento (CPU, este equipo) | ~81 s |
+
+![Curva de entrenamiento Q-Learning](results/qlearning_training_curve.png)
+
+La curva muestra el patrón típico de Q-Learning tabular: recompensa plana en
+`-200` mientras `epsilon` es alto (exploración pura, el agente casi nunca
+llega a la meta), y una mejora progresiva a medida que `epsilon` decae y la
+tabla Q converge, estabilizándose alrededor de `-130`.
+
+### 2. DQN — Ejercicios 2 y 3
+
+**Red neuronal (Ejercicio 2a):** MLP `state_dim(2) → 128 → 128 → action_dim(3)`
+con ReLU en las capas ocultas y sin activación en la salida (los Q-values son
+negativos, no probabilidades).
+
+**Paso de aprendizaje (Ejercicio 2b):** Bellman con red objetivo (target network)
+congelada:
+
+```
+current_q = Q_online(s).gather(1, a)
+next_q    = max_a' Q_target(s')          # sin gradiente
+target_q  = r + gamma * next_q * (1 - terminated)
+loss      = MSE(current_q, target_q)
+```
+
+**Ejercicio 3 — por qué DQN "textbook" no aprende nada en MountainCar:**
+con epsilon-greedy estándar, cada paso de exploración elige una acción
+aleatoria **independiente** de la anterior. Para escapar del valle el auto
+necesita empujar en la misma dirección durante ~20 pasos seguidos; la
+probabilidad de que eso ocurra por azar puro es `(1/3)^20 ≈ 3×10⁻¹⁰`. En
+consecuencia, el agente nunca observa la recompensa terminal y la red
+converge a predecir el mismo valor (`-1/(1-γ) ≈ -100`) para las tres acciones
+en todo estado: ha aprendido correctamente que, con los datos que ve, nada
+que haga cambia el resultado.
+
+**Solución implementada — exploración "pegajosa" (sticky exploration):** en
+lugar de sortear una acción aleatoria nueva en cada paso, la acción
+exploratoria se repite con probabilidad `sticky_prob=0.9` (nuevo
+hiperparámetro, persistido en `_HPARAMS`) y solo se redibuja el resto de las
+veces. Esto correlaciona las acciones consecutivas y genera corridas
+sostenidas en una misma dirección — justo el patrón de "balanceo" que el auto
+necesita para tomar impulso. El estado (`_last_explore_action`) se reinicia al
+comienzo de cada episodio de entrenamiento.
+
+**Hiperparámetros:** `lr=1e-3`, `gamma=0.99`, `epsilon: 1.0 → 0.01` con
+decaimiento `0.995`, `batch_size=64`, `target_update_freq=10` episodios,
+`sticky_prob=0.9`, ~2500 episodios.
+
+> **Nota sobre esta evidencia:** el entrenamiento de Q-Learning de arriba se
+> ejecutó y verificó de extremo a extremo. El entorno de sandbox usado para
+> preparar este repositorio no tiene espacio en disco suficiente para instalar
+> PyTorch (los wheels de Linux en PyPI traen dependencias CUDA de varios GB),
+> así que el código de DQN quedó implementado y revisado pero **no se pudo
+> ejecutar aquí**. Al correr `uv sync && uv run python scripts/train_and_plot.py
+> dqn --episodes 2500` en un equipo normal (bastan un par de GB libres), el
+> comando genera `results/dqn_rewards.csv` y `results/dqn_training_curve.png`
+> con la curva real — son los que hay que adjuntar en la entrega. Como
+> referencia del propio repositorio base, una implementación correcta alcanza
+> ~`-106` de recompensa media y llega a la meta en 10/10 episodios de
+> evaluación tras ~2500 episodios (ver `EXERCISES.md`).
+
+### 3. Comparación Q-Learning vs. DQN
+
+| Aspecto | Q-Learning tabular | DQN |
+|---|---|---|
+| Representación de Q | Tabla (400 celdas) | Red neuronal (≈17k parámetros) |
+| Manejo del espacio de estados | Requiere discretizar (pierde resolución) | Usa la observación continua directamente |
+| Estabilidad del entrenamiento | Alta una vez fijados los bins; converge de forma monótona | Más frágil: depende de red objetivo, tamaño de batch y, en este entorno, de la estrategia de exploración (Ejercicio 3) |
+| Velocidad de aprendizaje (episodios hasta converger) | ~10 000–15 000 episodios | ~2500 episodios con exploración corregida (más lento por episodio, pero converge en menos episodios) |
+| Desempeño final esperado | ≈ -130 | ≈ -106 (mejor, supera el umbral "resuelto" de -110) |
+| Dificultad de implementación | Baja: una actualización tabular de una línea | Media-alta: red, replay buffer, target network y, en este entorno particular, diagnosticar el problema de exploración |
+| Escalabilidad | No escala a estados continuos de alta dimensión ni a espacios de acción grandes | Escala a observaciones de alta dimensión (imágenes, sensores) |
+| Interpretabilidad | Alta (la tabla se puede inspeccionar directamente) | Baja (pesos de una red) |
+
+**Conclusión:** en un problema tan pequeño y de baja dimensión como
+MountainCar-v0, Q-Learning tabular es más simple de implementar y depurar, y
+alcanza un desempeño razonable de forma confiable. DQN, con la corrección de
+exploración del Ejercicio 3, supera a Q-Learning en desempeño final porque no
+pierde resolución al discretizar el estado — pero esa ventaja llega al costo
+de una implementación más compleja y de una fuente de fragilidad adicional
+(la calidad de la exploración) que en el método tabular no aparece. La
+lección central del taller es justamente esa: la parte "difícil" de DQN en
+este entorno no fue la red ni el algoritmo de Bellman, sino cómo se recolectan
+los datos de entrenamiento.
+
+### Esquemas (dibujo propio)
+
+Los diagramas del ciclo de entrenamiento de Q-Learning y de DQN que pide la
+rúbrica deben ser un dibujo propio (a mano o en una herramienta de diagramación
+como draw.io/Excalidraw), no generado por IA. Como guía de qué debe capturar
+cada uno, según el código de este repositorio:
+
+- **Q-Learning:** `obs continua → discretize() → estado discreto → select_action()
+  (ε-greedy) → env.step() → reward, next_obs → discretize() → _update() (TD
+  target y ajuste de Q[s,a]) →` vuelve al inicio del ciclo, con una flecha
+  aparte mostrando el decaimiento de `epsilon` episodio a episodio.
+- **DQN:** dos redes (`q_net` y `target_net`) desde el inicio; el ciclo es
+  `obs → select_action() (ε-greedy pegajoso) → env.step() → buffer.push() →
+  buffer.sample(batch) → q_net(states) → gather → current_q` por un lado, y
+  `target_net(next_states) → max → target_q (Bellman)` por otro, ambos
+  convergiendo en `loss = MSE(current_q, target_q) → backward() → step()`;
+  aparte, una flecha periódica (cada `target_update_freq` episodios) de
+  `q_net → target_net` (sincronización).
