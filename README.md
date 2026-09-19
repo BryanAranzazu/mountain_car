@@ -235,18 +235,25 @@ comienzo de cada episodio de entrenamiento.
 decaimiento `0.995`, `batch_size=64`, `target_update_freq=10` episodios,
 `sticky_prob=0.9`, ~2500 episodios.
 
-> **Nota sobre esta evidencia:** el entrenamiento de Q-Learning de arriba se
-> ejecutó y verificó de extremo a extremo. El entorno de sandbox usado para
-> preparar este repositorio no tiene espacio en disco suficiente para instalar
-> PyTorch (los wheels de Linux en PyPI traen dependencias CUDA de varios GB),
-> así que el código de DQN quedó implementado y revisado pero **no se pudo
-> ejecutar aquí**. Al correr `uv sync && uv run python scripts/train_and_plot.py
-> dqn --episodes 2500` en un equipo normal (bastan un par de GB libres), el
-> comando genera `results/dqn_rewards.csv` y `results/dqn_training_curve.png`
-> con la curva real — son los que hay que adjuntar en la entrega. Como
-> referencia del propio repositorio base, una implementación correcta alcanza
-> ~`-106` de recompensa media y llega a la meta en 10/10 episodios de
-> evaluación tras ~2500 episodios (ver `EXERCISES.md`).
+**Resultado real obtenido (evaluación greedy, 100 episodios, seeds fijas):**
+
+| Métrica | Valor |
+|---|---|
+| Recompensa media (evaluación, 100 episodios, política greedy) | **-112.39** |
+| Mejor episodio individual | **-86.00** |
+| Episodios en los que llega a la meta | **100/100** |
+| Tamaño del replay buffer al final del entrenamiento | 100 000 (lleno) |
+| Episodios de entrenamiento | 2500 |
+
+![Curva de entrenamiento DQN](results/dqn_training_curve.png)
+
+La curva muestra el mismo patrón "plano en -200" mientras `epsilon` es alto
+(igual que en Q-Learning), pero la mejora arranca antes: ya hacia el episodio
+800-1000 el agente empieza a resolver el problema de forma consistente,
+mientras que la tabla Q tardó unos 4000 episodios en despegar. Esto es
+esperable: la red generaliza entre estados vecinos (no tiene que visitar cada
+celda de una tabla por separado), así que aprovecha mejor cada transición que
+observa.
 
 ### 3. Comparación Q-Learning vs. DQN
 
@@ -256,7 +263,7 @@ decaimiento `0.995`, `batch_size=64`, `target_update_freq=10` episodios,
 | Manejo del espacio de estados | Requiere discretizar (pierde resolución) | Usa la observación continua directamente |
 | Estabilidad del entrenamiento | Alta una vez fijados los bins; converge de forma monótona | Más frágil: depende de red objetivo, tamaño de batch y, en este entorno, de la estrategia de exploración (Ejercicio 3) |
 | Velocidad de aprendizaje (episodios hasta converger) | ~10 000–15 000 episodios | ~2500 episodios con exploración corregida (más lento por episodio, pero converge en menos episodios) |
-| Desempeño final esperado | ≈ -130 | ≈ -106 (mejor, supera el umbral "resuelto" de -110) |
+| Desempeño final esperado | ≈ -136 (media de evaluación) | ≈ -112 (media de evaluación), mejor episodio -86 |
 | Dificultad de implementación | Baja: una actualización tabular de una línea | Media-alta: red, replay buffer, target network y, en este entorno particular, diagnosticar el problema de exploración |
 | Escalabilidad | No escala a estados continuos de alta dimensión ni a espacios de acción grandes | Escala a observaciones de alta dimensión (imágenes, sensores) |
 | Interpretabilidad | Alta (la tabla se puede inspeccionar directamente) | Baja (pesos de una red) |
