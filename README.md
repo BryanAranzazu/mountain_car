@@ -281,6 +281,10 @@ los datos de entrenamiento.
 
 ### Esquemas (dibujo propio)
 
+![Esquema Q-Learning](esquemas/Esquema%20Q-Learning.png) 
+
+![Esquema DQN](esquemas/Esquema%20DQN.png)
+
 Los diagramas del ciclo de entrenamiento de Q-Learning y de DQN que pide la
 rúbrica deben ser un dibujo propio (a mano o en una herramienta de diagramación
 como draw.io/Excalidraw), no generado por IA. Como guía de qué debe capturar
