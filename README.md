@@ -281,7 +281,11 @@ los datos de entrenamiento.
 
 ### Esquemas (dibujo propio)
 
+**Esquema Q-Learning**
+
 ![Esquema Q-Learning](esquemas/Esquema%20Q-Learning.png) 
+
+**Esquema DQN**
 
 ![Esquema DQN](esquemas/Esquema%20DQN.png)
 
